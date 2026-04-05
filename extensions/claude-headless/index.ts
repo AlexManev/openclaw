@@ -1,8 +1,11 @@
 import {
+  CLAUDE_CLI_CLEAR_ENV,
+  CLAUDE_CLI_MODEL_ALIASES,
+  CLAUDE_CLI_SESSION_ID_FIELDS,
   CLI_FRESH_WATCHDOG_DEFAULTS,
   CLI_RESUME_WATCHDOG_DEFAULTS,
+  normalizeClaudeBackendConfig,
 } from "openclaw/plugin-sdk/cli-backend";
-import type { CliBackendConfig } from "openclaw/plugin-sdk/cli-backend";
 import { formatCliCommand } from "openclaw/plugin-sdk/cli-runtime";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import type {
@@ -16,36 +19,6 @@ import type { ProviderAuthResult } from "openclaw/plugin-sdk/provider-auth";
 const PROVIDER_ID = "claude-headless";
 const BACKEND_ID = "claude-headless";
 const DEFAULT_MODEL_REF = "claude-headless/claude-sonnet-4-6";
-
-// Model aliases mapping OpenClaw model ids to Claude CLI shorthand names.
-// The Claude CLI accepts these via --model <alias>.
-const MODEL_ALIASES: Record<string, string> = {
-  opus: "opus",
-  "opus-4.6": "opus",
-  "opus-4.5": "opus",
-  "opus-4": "opus",
-  "claude-opus-4-6": "opus",
-  "claude-opus-4-5": "opus",
-  "claude-opus-4": "opus",
-  sonnet: "sonnet",
-  "sonnet-4.6": "sonnet",
-  "sonnet-4.5": "sonnet",
-  "sonnet-4.1": "sonnet",
-  "sonnet-4.0": "sonnet",
-  "claude-sonnet-4-6": "sonnet",
-  "claude-sonnet-4-5": "sonnet",
-  "claude-sonnet-4-1": "sonnet",
-  "claude-sonnet-4-0": "sonnet",
-  haiku: "haiku",
-  "haiku-3.5": "haiku",
-  "claude-haiku-3-5": "haiku",
-};
-
-const SESSION_ID_FIELDS = ["session_id", "sessionId", "conversation_id", "conversationId"] as const;
-
-// Env vars to clear so the local Claude CLI uses its own stored credentials,
-// not a direct API key that might route to a different account.
-const CLEAR_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY_OLD"] as const;
 
 // Headless mode args: -p (print/headless), stream-json output, and
 // bypassPermissions replaces the legacy --dangerously-skip-permissions flag.
@@ -70,52 +43,6 @@ const HEADLESS_RESUME_ARGS = [
   "--resume",
   "{sessionId}",
 ] as const;
-
-/**
- * Normalizes legacy --dangerously-skip-permissions to the modern
- * --permission-mode bypassPermissions in user-supplied config overrides.
- */
-function normalizePermissionArgs(args?: string[]): string[] | undefined {
-  if (!args) {
-    return args;
-  }
-  const normalized: string[] = [];
-  let sawLegacySkip = false;
-  let hasPermissionMode = false;
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === "--dangerously-skip-permissions") {
-      sawLegacySkip = true;
-      continue;
-    }
-    if (arg === "--permission-mode") {
-      hasPermissionMode = true;
-      normalized.push(arg);
-      const maybeValue = args[i + 1];
-      if (typeof maybeValue === "string") {
-        normalized.push(maybeValue);
-        i += 1;
-      }
-      continue;
-    }
-    if (arg.startsWith("--permission-mode=")) {
-      hasPermissionMode = true;
-    }
-    normalized.push(arg);
-  }
-  if (sawLegacySkip && !hasPermissionMode) {
-    normalized.push("--permission-mode", "bypassPermissions");
-  }
-  return normalized;
-}
-
-function normalizeBackendConfig(config: CliBackendConfig): CliBackendConfig {
-  return {
-    ...config,
-    args: normalizePermissionArgs(config.args),
-    resumeArgs: normalizePermissionArgs(config.resumeArgs),
-  };
-}
 
 function hasClaudeHeadlessAuth(): boolean {
   return Boolean(readClaudeCliCredentialsCached());
@@ -158,14 +85,14 @@ function registerClaudeHeadlessPlugin(api: OpenClawPluginApi): void {
       output: "jsonl",
       input: "stdin",
       modelArg: "--model",
-      modelAliases: { ...MODEL_ALIASES },
+      modelAliases: { ...CLAUDE_CLI_MODEL_ALIASES },
       sessionArg: "--session-id",
       sessionMode: "always",
-      sessionIdFields: [...SESSION_ID_FIELDS],
+      sessionIdFields: [...CLAUDE_CLI_SESSION_ID_FIELDS],
       systemPromptArg: "--append-system-prompt",
       systemPromptMode: "append",
       systemPromptWhen: "first",
-      clearEnv: [...CLEAR_ENV],
+      clearEnv: [...CLAUDE_CLI_CLEAR_ENV],
       reliability: {
         watchdog: {
           fresh: { ...CLI_FRESH_WATCHDOG_DEFAULTS },
@@ -174,7 +101,7 @@ function registerClaudeHeadlessPlugin(api: OpenClawPluginApi): void {
       },
       serialize: true,
     },
-    normalizeConfig: normalizeBackendConfig,
+    normalizeConfig: normalizeClaudeBackendConfig,
   });
 
   // Register the provider so users can set it up via `openclaw auth`.
